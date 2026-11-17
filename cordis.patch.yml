@@ -1,0 +1,3 @@
+- insert:
+    - id: session-forging
+      name: '@zhengrenwritecode/dsh-session-forging'

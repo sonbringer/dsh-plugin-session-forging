@@ -1,0 +1,33 @@
+{
+  "name": "@zhengrenwritecode/dsh-session-forging",
+  "version": "0.1.0-dev.0",
+  "description": "Session configuration for DeepSeek Harness.",
+  "type": "module",
+  "license": "MIT",
+  "author": "zhengrenwritecode",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhengrenwritecode/dsh-plugin-session-forging.git"
+  },
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22",
+    "dsh": ">=0.2.2-rc.2 <0.3.0-0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
