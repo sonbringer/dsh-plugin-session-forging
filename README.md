@@ -2,7 +2,7 @@
 
 为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的会话配置 Persona、soul、模型与能力。
 
-已提供火种源校验、登记和固定版本存储。会话创建与界面尚未接入。
+已提供火种源与会话附加文件的存储模块。原生会话创建与界面尚未接入。
 
 ```js
 import { readFile } from 'node:fs/promises';
@@ -19,7 +19,21 @@ const registered = await sources.list();
 
 格式见 [JSON Schema](schemas/source.schema.json)。上限 256 KiB、50 枚火种，空 soul 合法。重复 ID 不覆盖；读取必须携带 SHA-256 版本，内容损坏会报错。工具、模型和额度在此仅保存配置。
 
+准备会话附加文件，不创建或激活原生会话：
+
+```js
+import { SessionBindings } from '@zhengrenwritecode/dsh-session-forging/bindings';
+
+const bindings = new SessionBindings('/absolute/path/to/forging/bindings', sources);
+const binding = await bindings.prepare({ sessionId, source: reference, sparkId });
+const currentSoul = await bindings.readSoul(sessionId);
+```
+
+可传入完整 `spark` 保存本次编辑。相同 Session ID 与配置可重试，不同配置拒绝覆盖；`binding.creation` 保留创建原文，`binding.soulPath` 指向独立、可编辑的文件。读取不使用旧缓存。本地绑定不代表 DSH 已承认该会话的归属。
+
 `SourceError.code` 区分校验失败、重复 ID、版本变化和存储损坏。`SOURCE_WRITE_UNCERTAIN` 表示文件已发布但持久化未确认，应重新读取核对，不要直接重试覆盖。
+
+`BindingError.code` 区分绑定冲突、损坏和 soul 不可读；`BINDING_WRITE_UNCERTAIN` 同样需要重新读取核对。
 
 运行测试：`npm ci && npm test`。
 

@@ -1,6 +1,6 @@
 {
   "name": "@zhengrenwritecode/dsh-session-forging",
-  "version": "0.1.0-dev.1",
+  "version": "0.1.0-dev.2",
   "description": "Session configuration for DeepSeek Harness.",
   "type": "module",
   "license": "MIT",
@@ -12,6 +12,7 @@
   "exports": {
     ".": "./index.js",
     "./sources": "./src/sources.js",
+    "./bindings": "./src/bindings.js",
     "./schemas/source.schema.json": "./schemas/source.schema.json"
   },
   "files": [

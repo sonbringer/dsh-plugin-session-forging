@@ -25,6 +25,8 @@ function canonical(value) {
   return value;
 }
 
+export const contentRevision = value => createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
+
 /** Validate a JSON manifest without writing, resolving tools or rendering Persona. */
 export function previewSource(text) {
   if (typeof text !== 'string' || Buffer.byteLength(text, 'utf8') > MAX_SOURCE_BYTES) {
@@ -67,6 +69,6 @@ export function previewSource(text) {
   if (Buffer.byteLength(encoded, 'utf8') > MAX_SOURCE_BYTES) {
     throw new SourceError('INVALID_SOURCE', 'Normalized source exceeds 256 KiB.');
   }
-  const revision = createHash('sha256').update(encoded).digest('hex');
+  const revision = contentRevision(source);
   return { source, revision };
 }
