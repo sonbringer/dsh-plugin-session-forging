@@ -1,0 +1,120 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Session forging source v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "name", "description", "sparks"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "$ref": "#/definitions/id" },
+    "name": { "$ref": "#/definitions/name" },
+    "description": { "type": "string", "maxLength": 500 },
+    "sparks": { "type": "array", "minItems": 1, "maxItems": 50, "items": { "$ref": "#/definitions/spark" } },
+    "provenance": { "$ref": "#/definitions/provenance" }
+  },
+  "definitions": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[a-z][a-z0-9._-]*(?![\\s\\S])" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 120, "pattern": "\\S" },
+    "count": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "positiveLimit": { "type": ["integer", "null"], "minimum": 1, "maximum": 9007199254740991 },
+    "identifiers": {
+      "type": "array", "maxItems": 64, "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 120, "pattern": "\\S" }
+    },
+    "spark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "description", "persona", "soul", "cog", "components", "energon", "matrix"],
+      "properties": {
+        "id": { "$ref": "#/definitions/id" },
+        "name": { "$ref": "#/definitions/name" },
+        "description": { "type": "string", "maxLength": 500 },
+        "persona": { "type": "string", "maxLength": 16000 },
+        "soul": { "type": "string", "maxLength": 16000 },
+        "cog": {
+          "type": "object", "additionalProperties": false,
+          "required": ["provider", "model", "reasoningEffort"],
+          "properties": {
+            "provider": { "type": "string", "maxLength": 120, "pattern": "^$|\\S" },
+            "model": { "type": "string", "maxLength": 120, "pattern": "^$|\\S" },
+            "reasoningEffort": { "type": "string", "maxLength": 80 }
+          }
+        },
+        "components": {
+          "type": "object", "additionalProperties": false,
+          "required": ["tools", "skills"],
+          "properties": {
+            "tools": { "$ref": "#/definitions/identifiers" },
+            "skills": { "$ref": "#/definitions/identifiers" }
+          }
+        },
+        "energon": {
+          "type": "object", "additionalProperties": false,
+          "required": ["maxTokens", "tokenLimit", "maxTurnDurationMs", "wrapUpLeadTimeMs", "steps", "web"],
+          "properties": {
+            "maxTokens": { "$ref": "#/definitions/positiveLimit" },
+            "tokenLimit": { "type": ["integer", "null"], "minimum": 0, "maximum": 9007199254740991 },
+            "maxTurnDurationMs": { "$ref": "#/definitions/positiveLimit" },
+            "wrapUpLeadTimeMs": { "$ref": "#/definitions/count" },
+            "steps": {
+              "type": "object", "additionalProperties": false,
+              "required": ["maxStepsPerTurn", "wrapUpSteps", "finalReplySteps"],
+              "properties": {
+                "maxStepsPerTurn": { "$ref": "#/definitions/positiveLimit" },
+                "wrapUpSteps": { "$ref": "#/definitions/count" },
+                "finalReplySteps": { "$ref": "#/definitions/count" }
+              }
+            },
+            "web": {
+              "type": "object", "additionalProperties": false,
+              "required": ["searchMaxQueries", "searchMaxResults", "searchSummaryMaxChars"],
+              "properties": {
+                "searchMaxQueries": { "$ref": "#/definitions/positiveLimit" },
+                "searchMaxResults": { "$ref": "#/definitions/positiveLimit" },
+                "searchSummaryMaxChars": { "$ref": "#/definitions/positiveLimit" },
+                "searchTimeoutMs": { "$ref": "#/definitions/positiveLimit" },
+                "fetchTimeoutMs": { "$ref": "#/definitions/positiveLimit" }
+              }
+            }
+          }
+        },
+        "matrix": { "type": "boolean" },
+        "provenance": { "$ref": "#/definitions/provenance" },
+        "council": {
+          "type": "object", "additionalProperties": false, "required": ["enabled", "types"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "types": {
+              "type": "array", "uniqueItems": true,
+              "items": { "enum": ["prd", "spec", "design", "rfc", "adr", "sop", "runbook", "checklist", "notice", "pitfalls", "troubleshooting", "reference", "handoff", "postmortem", "report"] }
+            }
+          }
+        },
+        "runtime": {
+          "type": "object", "additionalProperties": false,
+          "required": ["preset", "complete", "includeRuntimeContext", "execution"],
+          "properties": {
+            "preset": { "enum": ["standard", "ptc", "minimal", "cordis"] },
+            "complete": { "type": "boolean" },
+            "includeRuntimeContext": { "type": "boolean" },
+            "execution": { "enum": ["native", "ptc", "persistent-shell"] }
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["project", "url", "revision", "license", "licenseText", "adaptation"],
+      "properties": {
+        "project": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "url": { "type": "string", "minLength": 1, "maxLength": 2000, "pattern": "^https://[^\\s]+$" },
+        "revision": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "license": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "licenseText": { "type": "string", "minLength": 1, "maxLength": 12000 },
+        "adaptation": { "type": "string", "minLength": 1, "maxLength": 3000 },
+        "upstreamTools": { "type": "array", "maxItems": 64, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 120 } },
+        "unmappedTools": { "type": "array", "maxItems": 64, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 120 } }
+      }
+    }
+  }
+}
