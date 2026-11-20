@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -34,6 +34,44 @@ test('binding, creation text and independent soul survive reopening', async t =>
   assert.deepEqual((await readdir(dirname(prepared.soulPath))).sort(), ['binding.json', 'soul.md']);
   prepared.spark.persona = 'Mutated return value';
   assert.equal((await reopened.get(input.sessionId)).spark.persona, '');
+});
+
+test('recovery enumerates published bindings without resetting edited soul or admitting staging files', async t => {
+  const { bindings, input, directory, sources } = await fixture(t);
+  assert.deepEqual(await bindings.list(), []);
+  const a = await bindings.prepare(input);
+  const b = await bindings.prepare({ ...input, sessionId: 'session-b' });
+  await writeFile(a.soulPath, 'Edited after preparation');
+  await mkdir(join(directory, '.preparing-interrupted'));
+  const reopened = new SessionBindings(directory, sources);
+  const recovered = await reopened.list();
+  assert.deepEqual(recovered.sort((a, b) => a.sessionId.localeCompare(b.sessionId)), [a, b]);
+  assert.equal(await reopened.readSoul(input.sessionId), 'Edited after preparation');
+  await rm(a.soulPath);
+  assert.equal((await reopened.list()).length, 2);
+  await assert.rejects(reopened.readSoul(input.sessionId), hasCode('SOUL_UNAVAILABLE'));
+});
+
+test('recovery refuses corrupted bindings and identity mismatches instead of hiding them', async t => {
+  const { bindings, input, directory } = await fixture(t);
+  const a = await bindings.prepare(input);
+  const file = join(dirname(a.soulPath), 'binding.json');
+  const original = await readFile(file);
+  await writeFile(file, '{');
+  await assert.rejects(bindings.list(), hasCode('CORRUPT_BINDING'));
+  await writeFile(file, original);
+  await rename(dirname(a.soulPath), join(directory, `session-${'0'.repeat(64)}`));
+  await assert.rejects(bindings.list(), hasCode('CORRUPT_BINDING'));
+});
+
+test('recovery does not follow a binding directory link', { skip: process.platform === 'win32' }, async t => {
+  const { root, bindings, input } = await fixture(t);
+  const a = await bindings.prepare(input);
+  const directory = dirname(a.soulPath);
+  const moved = join(root, 'moved');
+  await rename(directory, moved);
+  await symlink(moved, directory);
+  await assert.rejects(bindings.list(), hasCode('CORRUPT_BINDING'));
 });
 
 test('edited Spark is validated and fixed without changing its source', async t => {
@@ -173,4 +211,17 @@ test('soul links cannot replace the independent Session file', { skip: process.p
   await rm(a.soulPath);
   await symlink(b.soulPath, a.soulPath);
   await assert.rejects(bindings.readSoul(input.sessionId), hasCode('SOUL_UNAVAILABLE'));
+  assert.throws(() => bindings.readSoulSync(input.sessionId), hasCode('SOUL_UNAVAILABLE'));
+});
+
+test('admission reads the latest literal soul synchronously and rejects missing or invalid text', async t => {
+  const { bindings, input } = await fixture(t);
+  const binding = await bindings.prepare(input);
+  assert.equal(bindings.readSoulSync(input.sessionId), '');
+  await writeFile(binding.soulPath, '\ufeff心智 {{model}}\n');
+  assert.equal(bindings.readSoulSync(input.sessionId), '\ufeff心智 {{model}}\n');
+  await writeFile(binding.soulPath, Buffer.from([0xff]));
+  assert.throws(() => bindings.readSoulSync(input.sessionId), hasCode('SOUL_UNAVAILABLE'));
+  await rm(binding.soulPath);
+  assert.throws(() => bindings.readSoulSync(input.sessionId), hasCode('SOUL_UNAVAILABLE'));
 });

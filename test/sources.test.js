@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { SourceRegistry, previewSource, MAX_SOURCE_BYTES } from '../src/sources.js';
+import { nativeExampleId, nativeExampleName } from '../src/source.js';
 import { manifest } from './fixtures.js';
 
 async function registry(t) {
@@ -19,6 +20,21 @@ const register = (sources, source = manifest()) => {
   return sources.register(text, previewSource(text).revision);
 };
 const hasCode = code => error => error.code === code;
+
+test('native snapshot rejects edits before registration and accepts edits under a new copy ID', async t => {
+  const { sources } = await registry(t);
+  const example = { ...manifest(), name: nativeExampleName };
+  example.id = nativeExampleId(example);
+  const edited = structuredClone(example);
+  edited.sparks[0].soul = 'Changed soul';
+  await assert.rejects(register(sources, edited), hasCode('READ_ONLY_SOURCE'));
+  const ref = await register(sources, example);
+  const another = { ...edited.sparks[0], id: 'another-spark' };
+  await assert.rejects(sources.appendSpark(ref, another), hasCode('READ_ONLY_SOURCE'));
+  const copy = await register(sources, { ...edited, id: 'copy-native-example' });
+  assert.equal((await sources.appendSpark(copy, another)).source.sparks.at(-1).soul, 'Changed soul');
+  assert.deepEqual(await sources.get(ref), example);
+});
 
 test('preview validates without creating data or binding mutable objects', async t => {
   const { directory, sources } = await registry(t);
@@ -236,4 +252,79 @@ test('record symlinks are rejected instead of reading another source', { skip: p
   await writeFile(join(directory, 'outside.tmp'), bytes);
   await symlink('outside.tmp', path);
   await assert.rejects(sources.get(ref), hasCode('CORRUPT_SOURCE'));
+});
+
+test('deadline and explicit prices are validated without assuming free missing buckets', () => {
+  const source = manifest(), energy = source.sparks[0].energon;
+  energy.deadlineAt = 1000;
+  energy.wrapUpLeadTimeMs = 1;
+  energy.costLimit = 1;
+  energy.costCurrency = 'USD';
+  energy.pricing = [{ provider: 'p', model: 'm', input: 1, output: 2, cacheRead: 0, cacheWrite: 0 }];
+  assert.doesNotThrow(() => previewSource(JSON.stringify(source)));
+  for (const mutate of [
+    e => { e.deadlineAt = 0; },
+    e => { delete e.costCurrency; },
+    e => { delete e.pricing[0].output; },
+    e => { e.pricing[0].input = -1; },
+    e => { e.pricing.push(structuredClone(e.pricing[0])); },
+  ]) {
+    const copy = structuredClone(source); mutate(copy.sparks[0].energon);
+    assert.throws(() => previewSource(JSON.stringify(copy)), hasCode('INVALID_SOURCE'));
+  }
+});
+
+test('concurrent Spark copies extend one source and preserve every pinned revision after reopening', async t => {
+  const { directory, sources } = await registry(t);
+  const base = manifest(), ref = await register(sources, base);
+  const first = { ...base.sparks[0], id: 'first-copy', soul: 'saved' };
+  const second = { ...first, id: 'second-copy' };
+  const [a, b] = await Promise.all([
+    sources.appendSpark(ref, first), new SourceRegistry(directory).appendSpark(ref, second),
+  ]);
+  const reopened = new SourceRegistry(directory);
+  const [current] = await reopened.list();
+  assert.deepEqual(await reopened.get(ref), base);
+  for (const snapshot of [a, b]) {
+    assert.deepEqual(await reopened.get({ id: ref.id, revision: snapshot.revision }), snapshot.source);
+  }
+  const latest = await reopened.appendSpark(ref, first);
+  assert.equal(latest.revision, current.revision);
+  assert.equal(latest.source.sparks.length, base.sparks.length + 2);
+  await assert.rejects(reopened.appendSpark(ref, { ...first, soul: 'changed' }), hasCode('SPARK_EXISTS'));
+  assert.deepEqual(JSON.parse(await reopened.export(current)), latest.source);
+});
+
+test('editing, reverting and deleting a template preserve pinned versions and reject stale edits', async t => {
+  const { directory, sources } = await registry(t);
+  const base = manifest(), ref = await register(sources, base);
+  const copy = { ...base.sparks[0], id: 'copy-edit', name: 'First' };
+  const saved = await sources.appendSpark(ref, copy);
+  const pinned = { id: ref.id, revision: saved.revision };
+  const revised = { ...copy, name: 'Second', soul: 'updated' };
+  const changed = await sources.changeSpark(pinned, copy.id, revised);
+  await assert.rejects(sources.changeSpark(pinned, copy.id, null), hasCode('SOURCE_CHANGED'));
+  const next = { id: ref.id, revision: changed.revision };
+  const reverted = await sources.changeSpark(next, copy.id, copy);
+  assert.equal(reverted.revision, saved.revision);
+  assert.equal((await sources.changeSpark(pinned, copy.id, null)).revision, ref.revision);
+  const reopened = new SourceRegistry(directory);
+  assert.deepEqual((await reopened.list()).map(s => s.revision), [ref.revision]);
+  assert.deepEqual((await reopened.get(next)).sparks.at(-1), revised);
+  assert.deepEqual((await reopened.get(pinned)).sparks.at(-1), copy);
+  await assert.rejects(reopened.changeSpark(ref, base.sparks[0].id, null), hasCode('LAST_SPARK'));
+});
+
+test('pre-upgrade append records can be read before and after new edits', async t => {
+  const { directory, sources } = await registry(t);
+  const base = manifest(), ref = await register(sources, base);
+  const spark = { ...base.sparks[0], id: 'copy-legacy', name: 'Before upgrade' };
+  const legacy = previewSource(JSON.stringify({...base, sparks:[...base.sparks,spark]}));
+  const { Records } = await import('../src/records.js');
+  await new Records(join(directory, 'spark-additions')).put(ref.revision, { spark, revision: legacy.revision }, { immutable:true });
+  const changed = await sources.changeSpark({ id:ref.id,revision:legacy.revision }, spark.id, { ...spark, name:'Renamed' });
+  const reopened = new SourceRegistry(directory);
+  assert.deepEqual(await reopened.get({ id:ref.id,revision:legacy.revision }), legacy.source);
+  assert.deepEqual(await reopened.get(ref),base);
+  assert.equal((await reopened.latestById(ref.id)).revision,changed.revision);
 });

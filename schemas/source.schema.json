@@ -52,6 +52,10 @@
           "type": "object", "additionalProperties": false,
           "required": ["maxTokens", "tokenLimit", "maxTurnDurationMs", "wrapUpLeadTimeMs", "steps", "web"],
           "properties": {
+            "deadlineAt": {"type": ["integer", "null"], "minimum": 1, "maximum": 8640000000000000},
+            "costLimit": {"type": ["number", "null"], "minimum": 0, "maximum": 9007199254740991},
+            "costCurrency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+            "pricing": {"type": "array", "maxItems": 128, "items": {"type": "object", "additionalProperties": false, "required": ["provider", "model", "input", "output", "cacheRead", "cacheWrite"], "properties": {"provider": {"type": "string", "minLength": 1, "maxLength": 120}, "model": {"type": "string", "minLength": 1, "maxLength": 120}, "input": {"type": "number", "minimum": 0, "maximum": 9007199254740991}, "output": {"type": "number", "minimum": 0, "maximum": 9007199254740991}, "cacheRead": {"type": "number", "minimum": 0, "maximum": 9007199254740991}, "cacheWrite": {"type": "number", "minimum": 0, "maximum": 9007199254740991}}}},
             "maxTokens": { "$ref": "#/definitions/positiveLimit" },
             "tokenLimit": { "type": ["integer", "null"], "minimum": 0, "maximum": 9007199254740991 },
             "maxTurnDurationMs": { "$ref": "#/definitions/positiveLimit" },

@@ -1,5 +1,5 @@
-import { constants } from 'node:fs';
-import { lstat, mkdir, mkdtemp, open, rename, rm } from 'node:fs/promises';
+import { constants, openSync, closeSync, fstatSync, readFileSync, lstatSync } from 'node:fs';
+import { lstat, mkdir, mkdtemp, open, readdir, rename, rm } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { contentRevision, MAX_SOURCE_BYTES, previewSource } from './source.js';
@@ -147,6 +147,33 @@ export class SessionBindings {
     };
   }
 
+  /** Enumerate prepared bindings for recovery; this does not establish native Session membership. */
+  async list() {
+    let names;
+    try { names = await readdir(this.#directory); }
+    catch (error) {
+      if (error.code === 'ENOENT') return [];
+      throw error;
+    }
+    const result = [];
+    for (const name of names.filter(name => !name.startsWith('.')).sort()) {
+      let sessionId;
+      try {
+        const directory = join(this.#directory, name);
+        if (!/^session-[a-f0-9]{64}$/.test(name) || !await this.#checkDirectory(directory)) {
+          throw new Error('Invalid binding directory.');
+        }
+        const record = JSON.parse(await readLimited(join(directory, 'binding.json'), MAX_SOURCE_BYTES + 4096));
+        sessionId = record.snapshot?.sessionId;
+        if (this.#path(sessionId) !== directory) throw new Error('Binding identity does not match its directory.');
+      } catch (cause) {
+        throw new BindingError('CORRUPT_BINDING', `Cannot recover binding ${name}.`, { cause });
+      }
+      result.push(await this.get(sessionId));
+    }
+    return result;
+  }
+
   async readSoul(sessionId) {
     const { soulPath } = await this.get(sessionId);
     try {
@@ -156,5 +183,22 @@ export class SessionBindings {
     } catch (cause) {
       throw new BindingError('SOUL_UNAVAILABLE', 'Soul is missing, unreadable or invalid; no cached text was used.', { cause });
     }
+  }
+
+  /** Native prompt providers are synchronous, including the admission refresh. */
+  readSoulSync(sessionId) {
+    let file;
+    try {
+      const directory = this.#path(sessionId);
+      if (!lstatSync(directory).isDirectory()) throw new Error('Invalid binding directory.');
+      file = openSync(join(directory, 'soul.md'), constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      const stat = fstatSync(file);
+      if (!stat.isFile() || stat.size > soulLimit * 4) throw new Error('Invalid soul size or type.');
+      const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(readFileSync(file));
+      if ([...text].length > soulLimit) throw new Error('Soul exceeds its character limit.');
+      return text;
+    } catch (cause) {
+      throw new BindingError('SOUL_UNAVAILABLE', 'Soul is missing, unreadable or invalid; no cached text was used.', { cause });
+    } finally { if (file !== undefined) closeSync(file); }
   }
 }

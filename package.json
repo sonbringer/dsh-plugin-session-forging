@@ -1,6 +1,6 @@
 {
   "name": "@zhengrenwritecode/dsh-session-forging",
-  "version": "0.1.0-dev.2",
+  "version": "0.2.0",
   "description": "Session configuration for DeepSeek Harness.",
   "type": "module",
   "license": "MIT",
@@ -10,18 +10,27 @@
     "url": "git+https://github.com/zhengrenwritecode/dsh-plugin-session-forging.git"
   },
   "exports": {
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
     ".": "./index.js",
+    "./client": "./client.js",
     "./sources": "./src/sources.js",
     "./bindings": "./src/bindings.js",
+    "./capabilities": "./src/capabilities.js",
     "./schemas/source.schema.json": "./schemas/source.schema.json"
   },
   "files": [
     "index.js",
+    "client.js",
+    "cli.js",
     "cordis.patch.yml",
     "src",
     "schemas",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "doc/use-cases",
+    "sources",
+    "locale"
   ],
   "engines": {
     "node": ">=22",
@@ -30,6 +39,20 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/dsh-client-ui-chat",
+        "@deepseek-ai/dsh-client-ui-workspace",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-context-menu"
+      ]
     }
   },
   "scripts": {
@@ -40,5 +63,8 @@
   },
   "dependencies": {
     "ajv": "8.20.0"
+  },
+  "bin": {
+    "session-forging": "./cli.js"
   }
 }

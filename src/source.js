@@ -27,6 +27,19 @@ function canonical(value) {
 
 export const contentRevision = value => createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
 
+export const nativeExampleName = '原生示例（不可编辑）';
+export const nativeExampleId = source => 'native-example-' + contentRevision({ ...source, id: 'native' }).slice(0, 12);
+export const isNativeExampleId = id => /^native-example-[0-9a-f]{12}$/.test(id);
+export function isNativeExample(source) {
+  if (isNativeExampleId(source.id)) return true;
+  // dev.9 derived its ID from the original four modes, before any saved Spark additions.
+  return source.name === 'native' && /^native-[0-9a-f]{12}$/.test(source.id) &&
+    source.id === 'native-' + contentRevision({ ...source, id: 'native', sparks: source.sparks.slice(0, 4) }).slice(0, 12);
+}
+export function readOnlyExampleError() {
+  return new SourceError('READ_ONLY_SOURCE', '原生示例不可编辑。请先另存为新火种源，再编辑副本。');
+}
+
 /** Validate a JSON manifest without writing, resolving tools or rendering Persona. */
 export function previewSource(text) {
   if (typeof text !== 'string' || Buffer.byteLength(text, 'utf8') > MAX_SOURCE_BYTES) {
@@ -59,8 +72,11 @@ export function previewSource(text) {
     if (limit === null ? wrap !== 0 || reply !== 0 : reply > wrap || wrap > limit) {
       fail('Require 0 ≤ finalReplySteps ≤ wrapUpSteps ≤ maxStepsPerTurn; unlimited reserves must be 0.');
     }
+    if (spark.energon.costLimit != null && !spark.energon.costCurrency) fail('Cost limits require a currency and explicit model pricing.');
+    const prices = spark.energon.pricing ?? [];
+    if (new Set(prices.map(p => JSON.stringify([p.provider, p.model]))).size !== prices.length) fail('Pricing routes must be unique.');
     const { maxTurnDurationMs: duration, wrapUpLeadTimeMs: lead } = spark.energon;
-    if (duration === null ? lead !== 0 : lead >= duration) {
+    if (duration === null ? lead !== 0 && spark.energon.deadlineAt == null : lead >= duration) {
       fail('wrapUpLeadTimeMs must be below maxTurnDurationMs; unlimited lead time must be 0.');
     }
   }
