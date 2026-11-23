@@ -59,25 +59,30 @@ export function previewSource(text) {
 
   const ids = new Set();
   for (const [index, spark] of source.sparks.entries()) {
-    const fail = message => { throw new SourceError('INVALID_SOURCE', `/sparks/${index}: ${message}`); };
-    if (ids.has(spark.id)) fail('Spark IDs must be unique.');
+    const fail = (path, message) => {
+      const instancePath = `/sparks/${index}/${path}`;
+      const error = new SourceError('INVALID_SOURCE', `${instancePath}: ${message}`);
+      error.issues = [{ instancePath, message }];
+      throw error;
+    };
+    if (ids.has(spark.id)) fail('id', 'Spark IDs must be unique.');
     ids.add(spark.id);
     if (Boolean(spark.cog.provider) !== Boolean(spark.cog.model)) {
-      fail('Set provider and model together, or leave both empty.');
+      fail('cog/model', 'Set provider and model together, or leave both empty.');
     }
     for (const [, variable] of spark.persona.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)) {
-      if (!['provider', 'model'].includes(variable)) fail(`Unknown Persona variable: ${variable}`);
+      if (!['provider', 'model'].includes(variable)) fail('persona', `Unknown Persona variable: ${variable}`);
     }
     const { maxStepsPerTurn: limit, wrapUpSteps: wrap, finalReplySteps: reply } = spark.energon.steps;
     if (limit === null ? wrap !== 0 || reply !== 0 : reply > wrap || wrap > limit) {
-      fail('Require 0 ≤ finalReplySteps ≤ wrapUpSteps ≤ maxStepsPerTurn; unlimited reserves must be 0.');
+      fail('energon/steps', 'Require 0 ≤ finalReplySteps ≤ wrapUpSteps ≤ maxStepsPerTurn; unlimited reserves must be 0.');
     }
-    if (spark.energon.costLimit != null && !spark.energon.costCurrency) fail('Cost limits require a currency and explicit model pricing.');
+    if (spark.energon.costLimit != null && !spark.energon.costCurrency) fail('energon/costCurrency', 'Cost limits require a currency and explicit model pricing.');
     const prices = spark.energon.pricing ?? [];
-    if (new Set(prices.map(p => JSON.stringify([p.provider, p.model]))).size !== prices.length) fail('Pricing routes must be unique.');
+    if (new Set(prices.map(p => JSON.stringify([p.provider, p.model]))).size !== prices.length) fail('energon/pricing', 'Pricing routes must be unique.');
     const { maxTurnDurationMs: duration, wrapUpLeadTimeMs: lead } = spark.energon;
     if (duration === null ? lead !== 0 && spark.energon.deadlineAt == null : lead >= duration) {
-      fail('wrapUpLeadTimeMs must be below maxTurnDurationMs; unlimited lead time must be 0.');
+      fail('energon/wrapUpLeadTimeMs', 'wrapUpLeadTimeMs must be below maxTurnDurationMs; unlimited lead time must be 0.');
     }
   }
 

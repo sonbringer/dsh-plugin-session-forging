@@ -1,13 +1,13 @@
 {
   "name": "@zhengrenwritecode/dsh-session-forging",
-  "version": "0.2.0",
-  "description": "Session configuration for DeepSeek Harness.",
+  "version": "0.3.0",
+  "description": "Create DeepSeek Harness sessions from reusable templates with per-session instructions, memory, tools and usage limits. Share project documents and dispatch work across sessions.",
   "type": "module",
   "license": "MIT",
-  "author": "zhengrenwritecode",
+  "author": "sonbringer",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zhengrenwritecode/dsh-plugin-session-forging.git"
+    "url": "git+https://github.com/sonbringer/dsh-plugin-session-forging.git"
   },
   "exports": {
     "./package.json": "./package.json",
@@ -66,5 +66,13 @@
   },
   "bin": {
     "session-forging": "./cli.js"
-  }
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "session",
+    "session-templates",
+    "agent-memory",
+    "multi-agent"
+  ]
 }

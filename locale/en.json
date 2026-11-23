@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Session forging",
-    "description": "Create sessions with independent instructions, memory, capabilities and usage limits."
+    "description": "Create DeepSeek Harness sessions from reusable templates with per-session instructions, memory, tools and usage limits. Share project documents and dispatch work across sessions."
   }
 }

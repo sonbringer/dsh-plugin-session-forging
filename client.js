@@ -4,14 +4,66 @@ window.__ModuleLoader__.load({
     const React = require('react'),
       h = React.createElement;
     const { Button, Menu, Modal, Toast, Tooltip, IconChevronDownOutlineRegular } = require('@deepseek-ai/dsh-client-ui-primitives');
-    const field = (label, control, hint) =>
-      h(
-        'label',
-        { className: 'sf-field' },
-        h('span', null, label),
-        React.cloneElement(control, { 'aria-label': control.props['aria-label'] ?? label }),
-        hint ? h('small', null, hint) : null
-      );
+    const ReadOnly = React.createContext(false);
+    function Field({ label, control, hint, error }) {
+      const locked = React.useContext(ReadOnly);
+      const id = React.useId();
+      return h('label', { className: 'sf-field' }, h('span', null, label),
+        React.cloneElement(control, {
+          ...(locked && (control.type === 'textarea' ? { readOnly: true } : { disabled: true })),
+          'aria-label': control.props['aria-label'] ?? label,
+          'aria-invalid': error ? true : undefined,
+          'aria-describedby': [hint && id + '-hint', error && id + '-error'].filter(Boolean).join(' ') || undefined,
+        }),
+        hint && h('small', { id: id + '-hint' }, hint),
+        error && h('small', { id: id + '-error', className: 'sf-error' }, error));
+    }
+    const field = (label, control, hint, error) => h(Field, { label, control, hint, error });
+    const bundleName = '@zhengrenwritecode/dsh-session-forging';
+    async function readUpdate(rpc) {
+      const bundles = await rpc.call('/api', 'pluginManager/listBundles', {args:{}});
+      if (!bundles?.ok) throw Error('无法读取插件版本');
+      const item = bundles.value.find(row => row.name === bundleName);
+      if (!item?.installed) return '更新状态未知';
+      if (!item.update) {
+        const label = /^(file:|link:|[/~])/.test(item.source ?? '') ? '本地安装' : '已安装';
+        return item.version ? label + ' · ' + item.version : '更新状态未知';
+      }
+      const answer = await rpc.call('/api', 'pluginManager/listVersions', {args:{name:bundleName, options:{}}});
+      if (!answer.ok || answer.value.status !== 'listed') throw Error('无法检查更新');
+      const next = answer.value.versions.find(version => version.bundle && !version.incompatible);
+      return next ? '有更新 · ' + next.version :
+        answer.value.versions.length ? '暂无可用更新' : '已是最新';
+    }
+    function WorkbenchHeader({ navigation, page, setPage, refresh, busy, update, tabId }) {
+      const tabs = [['forge', '锻造会话'], ['sources', '火种源']];
+      const icon = (name, action, glyph, disabled) => h('button', {
+        type: 'button', className: 'sf-icon', title: name, 'aria-label': name, onClick: action, disabled,
+      }, glyph);
+      return h('header', { className: 'sf-header' },
+        h('div', { className: 'sf-toolbar' },
+          h('button', { type: 'button', className: 'sf-back', onClick: navigation.back },
+            h('span', { 'aria-hidden': true }, '‹'), '返回会话'),
+          h('h1', null, '锻造会话'),
+          h('div', { className: 'sf-header-actions' },
+            h('span', { className: 'sf-update', role: 'status' },
+              h('button', {type:'button', className:'sf-update-link', disabled: update === '检查更新…' || (!navigation.settings && update !== '无法检查更新'),
+                onClick: update === '无法检查更新' ? refresh : navigation.settings}, update)),
+            icon('刷新', refresh, h('svg',{viewBox:'0 0 24 24','aria-hidden':true}, h('path',{d:'M20 4v6h-6 M19 10a7.5 7.5 0 1 0 .2 4'})), busy),
+            icon('插件设置', navigation.settings, h('svg',{viewBox:'0 0 24 24','aria-hidden':true},
+              h('path',{d:'m9 4 1-2h4l1 2 2 1 2 .2 2 3.5-1.2 1.8v3l1.2 1.8-2 3.5-2 .2-2 1-1 2h-4l-1-2-2-1-2-.2-2-3.5 1.2-1.8v-3L3 8.7l2-3.5L7 5Z'}),h('circle',{cx:12,cy:12,r:3})), !navigation.settings))),
+        h('div', { className: 'sf-tabs', role: 'tablist', 'aria-label': '锻造台页面' },
+          tabs.map(([id, label], index) => h('button', { type: 'button', role: 'tab', key: id,
+            id: tabId + id, 'aria-controls': tabId + '-panel', 'aria-selected': page === id,
+            tabIndex: page === id ? 0 : -1, onClick: () => setPage(id),
+            onKeyDown: event => {
+              const target = {ArrowLeft: 1-index, ArrowRight: 1-index, Home: 0, End: 1}[event.key];
+              if (target === undefined) return;
+              event.preventDefault();
+              setPage(tabs[target][0]);
+              event.currentTarget.parentElement.children[target].focus();
+            } }, label))));
+    }
     const section = (title, ...children) =>
       h('section', { className: 'sf-section' }, h('h2', null, title), ...children);
     const choices = (value, onChange, items, label) =>
@@ -39,29 +91,49 @@ window.__ModuleLoader__.load({
     };
     const isForgingPreset = id => typeof id === 'string' && (id.startsWith('session-forging-') || id.startsWith('火种 · '));
     const firstMessageField = (value, setValue) => field('首条消息',
-      h('textarea', { value, rows: 3, maxLength: 131072, onChange: e => setValue(e.target.value),
+      h('textarea', { value, rows: value.includes('\n') ? 3 : 1, maxLength: 131072, onChange: e => setValue(e.target.value),
         placeholder: '希望这个会话先做什么？' }));
     const titleField = (value, setValue) => field('会话名称',
       h('input', { value, maxLength: 120, onChange: e => setValue(e.target.value), placeholder: '选填' }),
       '需要被点名协作时，建议起一个好辨认的名字。留空时由 DSH 根据首条消息命名。');
     const roleHint = '选填。例如「守住旧客户端兼容性」。从首轮起生效，本次派工可另行指定。';
-    function Workbench({ call, openSession, workspaceTarget, stage }) {
+    function Workbench({ call, openSession, workspaceTarget, stage, navigation }) {
       const [catalog, setCatalog] = React.useState(null),
         [workspace, setWorkspace] = React.useState(() => workspaceTarget.selected);
       const [source, setSource] = React.useState(null),
         [sparkId, setSparkId] = React.useState(null),
         [edits, setEdits] = React.useState(() => new Map()),
         [page, setPage] = React.useState('forge');
-      const original = source?.source.sparks.find(s => s.id === sparkId) ?? source?.source.sparks[0];
       const sourceEdits = source && !source.readOnly ? edits.get(source.source.id) : undefined;
-      const draft = original && (sourceEdits?.get(original.id) ?? original);
+      const savedSparks = source?.source.sparks ?? [];
+      const sparks = [...savedSparks, ...Array.from(sourceEdits?.values() ?? [])
+        .filter(entry => !savedSparks.some(spark => spark.id === entry.base.id)).map(entry => entry.base)];
+      const original = sparks.find(spark => spark.id === sparkId) ?? sparks[0];
+      const edit = sourceEdits?.get(original?.id);
+      const draft = edit?.value ?? original;
+      const conflict = edit && JSON.stringify(edit.base) !== JSON.stringify(savedSparks.find(spark => spark.id === draft.id));
+      const tabId = React.useId();
+      const fileInput = React.useRef(null);
+      const [fileName, setFileName] = React.useState('');
+      const [importing, setImporting] = React.useState(false);
+      const [creating, setCreating] = React.useState(false);
+      const [update, setUpdate] = React.useState('检查更新…');
+      const [versionCheck, setVersionCheck] = React.useState(0);
+      React.useEffect(() => {
+        let current = true;
+        setUpdate('检查更新…');
+        navigation.readUpdate().then(value => { if (current) setUpdate(value); },
+          () => { if (current) setUpdate('无法检查更新'); });
+        return () => { current = false; };
+      }, [navigation, versionCheck]);
       const [firstMessage, setFirstMessage] = React.useState('');
       const [copy, setCopy] = React.useState(null);
       const [manage, setManage] = React.useState(null);
       const [loadedWorkspace, setLoadedWorkspace] = React.useState(null);
+      const [loadError, setLoadError] = React.useState('');
       const inFlight = React.useRef(false);
       const [error, setError] = React.useState(''),
-        [validation, setValidation] = React.useState(''),
+        [issues, setIssues] = React.useState([]),
         [checking, setChecking] = React.useState(false),
         [busy, setBusy] = React.useState(false);
       const [title, setTitle] = React.useState(''),
@@ -88,8 +160,15 @@ window.__ModuleLoader__.load({
       const load = React.useCallback(
         async (id) => {
           const serial = ++generation.current;
-          const value = await call('catalog', { workspaceId: id || null });
-          if (serial !== generation.current) return value;
+          setLoadError('');
+          let value;
+          try {
+            value = await call('catalog', { workspaceId: id || null });
+          } catch (cause) {
+            if (serial === generation.current) setLoadError(cause.message);
+            return;
+          }
+          if (serial !== generation.current) return;
           setCatalog(value);
           setSource(current => current?.liveExample ? value.sources.find(item => item.liveExample) : value.sources.find(item => item.source.id === current?.source.id) ?? value.sources[0]);
           setLoadedWorkspace(id);
@@ -113,15 +192,15 @@ window.__ModuleLoader__.load({
         const timer = setTimeout(
           () =>
             call(
-              'sourcePreview',
+              'validateSpark',
               { text: JSON.stringify({ ...source.source, sparks: [draft] }) },
               control.signal
             )
-              .then(() => {
-                if (!control.signal.aborted) setValidation('');
+              .then(value => {
+                if (!control.signal.aborted) setIssues(value);
               })
               .catch((e) => {
-                if (!control.signal.aborted) setValidation(e.message);
+                if (!control.signal.aborted) setIssues([{ path: '', message: e.message }]);
               })
               .finally(() => {
                 if (!control.signal.aborted) setChecking(false);
@@ -178,7 +257,10 @@ window.__ModuleLoader__.load({
       const patch = (key, value) => setEdits(previous => {
         if (source.readOnly) return previous;
         const changes = new Map(previous.get(source.source.id));
-        changes.set(draft.id, { ...(changes.get(draft.id) ?? draft), [key]: value });
+        const current = changes.get(draft.id) ?? { base: original, revision: source.revision, value: draft };
+        const next = { ...current.value, [key]: value };
+        if (JSON.stringify(next) === JSON.stringify(current.base)) changes.delete(draft.id);
+        else changes.set(draft.id, { ...current, value: next });
         return new Map(previous).set(source.source.id, changes);
       });
       const download = () =>
@@ -195,15 +277,22 @@ window.__ModuleLoader__.load({
           link.click();
           setTimeout(() => URL.revokeObjectURL(url), 1000);
         });
+      const refresh = () => act(async () => {
+        setVersionCheck(value => value + 1);
+        if (await load(workspace)) setStatus('已刷新');
+      });
+      const header = h(WorkbenchHeader, {navigation, page, setPage, refresh, busy, update: update === '更新状态未知' && catalog?.pluginVersion ? 'v' + catalog.pluginVersion + ' · ' + update : update, tabId});
+      const panelProps = {className: 'sf-body', role: 'tabpanel', id: tabId + '-panel', 'aria-labelledby': tabId + page};
       if (!catalog || !draft || !source)
-        return h(
-          'div',
-          { className: 'sf-workbench' },
-          h('h1', null, '锻造台'),
-          error ? h('p', { role: 'alert' }, error) : h('p', null, '正在读取 DSH 配置…')
-        );
-      const configSection = (title, ...children) => section(title,
-        h('fieldset', { className: 'sf-config-fields', disabled: Boolean(source.readOnly) }, ...children));
+        return h('div', { className: 'sf-workbench' }, header,
+          h('div', panelProps, loadError ? h('p', { role: 'alert' }, loadError) : h('p', { role: 'status' }, '正在读取 DSH 配置…'),
+            loadError && h(Button, { disabled: busy, onClick: refresh }, '重试')));
+      const validation = issues[0]?.message ?? '';
+      const fieldError = path => issues.find(issue => issue.path === path ||
+        (issue.path && path.startsWith(issue.path + '/')))?.message;
+      const configSection = (title, ...children) => h('section', {className: 'sf-subsection'},
+        h('h3', null, title), h(ReadOnly.Provider, {value:Boolean(source.readOnly)},
+          h('fieldset', { className:'sf-config-fields', 'data-readonly':source.readOnly || undefined }, ...children)));
       const mode = draft.runtime?.preset ?? 'standard',
         available = catalog.modes[mode],
         selectedModel = draft.cog;
@@ -216,7 +305,7 @@ window.__ModuleLoader__.load({
         label,
         value,
         update,
-        { min = 0, defaultText = '本插件不额外设限', step = 1 } = {}
+        { min = 0, defaultText = '本插件不额外设限', step = 1, path } = {}
       ) =>
         field(
           label,
@@ -230,22 +319,29 @@ window.__ModuleLoader__.load({
             onChange: (e) => update(e.target.value === '' ? null : Number(e.target.value)),
             'aria-label': label,
           }),
-          `${min}–${Number.MAX_SAFE_INTEGER}${step === 1 ? '，整数' : ''}；空值：${defaultText}`
+          undefined, path && fieldError('/energon/' + path)
         );
       const toggle = (label, checked, update) =>
         h(
           'label',
           { className: 'sf-check' },
-          h('input', { type: 'checkbox', checked, onChange: (e) => update(e.target.checked) }),
+          h('input', { type: 'checkbox', checked, disabled:source.readOnly, onChange: (e) => update(e.target.checked) }),
           label
         );
+      const provenance = info => info && h('small', {className:'sf-meta'},
+        info.project, ' · ', h('a',{href:info.url,target:'_blank',rel:'noreferrer'},info.revision.slice(0,12)), ' · ', info.license);
+      const sourceSummary = h('div', {className:'sf-source-info'},
+        h('p', null, source.source.description),
+        h('small', {className:'sf-meta'}, (source.readOnly ? '只读' : source.builtin ? '内置来源' : '自定义来源') +
+          ' · ' + source.source.sparks.length + ' 枚火种 · ' + source.revision.slice(0,12)),
+        provenance(source.source.provenance));
       const capabilities = (kind) => {
         const items = available[kind],
           chosen = draft.components[kind];
         return h(
           'div',
           null,
-          h('h3', null, kind === 'tools' ? '工具' : 'Skills'),
+          h('h4', null, kind === 'tools' ? '工具' : 'Skills'),
           kind === 'skills' && !available.skillsLoaded
             ? h('p', null, '选择工作区后读取 Skills。')
             : null,
@@ -262,7 +358,7 @@ window.__ModuleLoader__.load({
                 'label',
                 { key: item.name, className: 'sf-check', title: item.description },
                 h('input', {
-                  type: 'checkbox',
+                  type: 'checkbox', disabled:source.readOnly,
                   checked: chosen.includes(item.name),
                   onChange: (e) =>
                     patch('components', {
@@ -281,6 +377,7 @@ window.__ModuleLoader__.load({
       const problems = [
         !workspace && '请选择工作区。',
         workspace && loadedWorkspace !== workspace && '请等候该工作区的配置加载完成。',
+        conflict && '此火种的已保存版本已改变，请选择如何保留本地修改。',
         checking ? '正在校验火种配置…' : validation,
       ].filter(Boolean);
       const create = async (item, spark) => {
@@ -312,7 +409,7 @@ window.__ModuleLoader__.load({
       });
       const changeSaved = () => act(async () => {
         const removing = manage.kind === 'delete';
-        const result = await call('changeSpark', { source: { id: source.source.id, revision: source.revision },
+        const result = await call('changeSpark', { source: { id: source.source.id, revision: manage.revision },
           sparkId: original.id, spark: removing ? null : { ...draft, name: manage.name.trim() } });
         const item = { ...source, ...result };
         setEdits(previous => {
@@ -340,7 +437,7 @@ window.__ModuleLoader__.load({
           }), builtin: source.builtin };
         } else {
           const manifest = { ...source.source, id: copy.id, name: copy.name.trim(),
-            sparks: source.source.sparks.map(spark => sourceEdits?.get(spark.id) ?? spark) };
+            sparks: sparks.map(spark => sourceEdits?.get(spark.id)?.value ?? spark) };
           item = { ...await call('saveSourceCopy', { text: JSON.stringify(manifest) }), builtin: false };
           selected = item.source.sparks.find(spark => spark.id === draft.id);
         }
@@ -374,27 +471,8 @@ window.__ModuleLoader__.load({
       return h(
         'div',
         { className: 'sf-workbench' },
-        h('h1', null, '锻造台'),
-        h(
-          'nav',
-          { className: 'sf-tabs' },
-          h(
-            Button,
-            {
-              onClick: () => setPage('forge'),
-              variant: page === 'forge' ? 'primary' : 'secondary',
-            },
-            '锻造会话'
-          ),
-          h(
-            Button,
-            {
-              onClick: () => setPage('sources'),
-              variant: page === 'sources' ? 'primary' : 'secondary',
-            },
-            '火种源'
-          )
-        ),
+        header,
+        h('div', panelProps,
         copyDialog,
         manage && h(Modal, {open:true, title:manage.kind === 'delete' ? '删除火种' : '保存火种修改',
           closeLabel:'取消', onClose:()=>{ if (!busy) setManage(null); }},
@@ -402,6 +480,8 @@ window.__ModuleLoader__.load({
             : field('火种名称',h('input',{value:manage.name,maxLength:120,onChange:e=>setManage({...manage,name:e.target.value})})),
           error && h('p',{role:'alert'},error),
           h(Button,{type:'button',disabled:busy || !manage.name.trim(),onClick:changeSaved},manage.kind === 'delete' ? '确认删除' : '保存修改')),
+        loadError && h('div', {role:'alert',className:'sf-error'}, '读取锻造配置失败 · ' + loadError,
+          h(Button,{disabled:busy,onClick:refresh}, '重试')),
         page === 'sources' && error ? h('p', { role: 'alert', className: 'sf-error' }, error) : null,
         status ? h('p', { role: 'status' }, status) : null,
         page === 'sources'
@@ -416,31 +496,35 @@ window.__ModuleLoader__.load({
                   catalog.sources.map((item) => [item.source.id, item.displayName ?? item.source.name]),
                   '火种源'
                 ),
-                h('p', null, source.source.description),
+                sourceSummary,
                 h(
                   'div',
                   { className: 'sf-actions' },
-                  field(
-                    '导入 JSON',
-                    h('input', {
-                      type: 'file',
-                      accept: '.json,application/json',
-                      disabled: busy,
-                      onChange: (e) => {
-                        const file = e.target.files[0];
-                        if (file)
-                          act(async () => {
-                            if (file.size > 262144) throw Error('主文件不得超过 256 KiB');
-                            const text = await file.text();
-                            const value = await call('sourcePreview', { text });
-                            setImportText(text);
-                            setPreview(value);
-                          });
-                        e.target.value = '';
-                      },
-                    })
-                  ),
-                  h(Button, { disabled: busy, onClick: download }, '导出')
+                  h('input', { type: 'file', accept: '.json,application/json', hidden: true,
+                    ref: fileInput, 'aria-label': '导入 JSON', disabled: busy,
+                    onChange: event => {
+                      const file = event.target.files[0];
+                      event.target.value = '';
+                      if (!file) return;
+                      setPreview(null); setImportText('');
+                      setFileName(file.name + ' · ' + (file.size < 1024 ? file.size + ' B' : Math.ceil(file.size / 1024) + ' KiB'));
+                      act(async () => {
+                        setImporting(true);
+                        try {
+                          if (file.size > 262144) throw Error('主文件不得超过 256 KiB');
+                          const text = await file.text();
+                          const value = await call('sourcePreview', { text });
+                          setImportText(text); setPreview(value);
+                        } finally { setImporting(false); }
+                      });
+                    } }),
+                  h(Button, { variant:'outline', disabled: busy, onClick: () => fileInput.current.click() }, '导入 JSON…'),
+                  h(Button, { disabled: busy, onClick: download }, '导出 JSON'),
+                  h('small', {className:'sf-muted'}, fileName || 'JSON · 最大 256 KiB'),
+                  importing && h('small', {role:'status'}, '正在校验 JSON…'),
+                  fileName && h(Button, {disabled:busy, onClick:() => {
+                    setFileName(''); setImportText(''); setPreview(null); setError('');
+                  }}, '移除文件')
                 )
               ),
               preview
@@ -448,6 +532,7 @@ window.__ModuleLoader__.load({
                     '导入预览',
                     h('h3', null, preview.source.name),
                     h('p', null, preview.source.description),
+                    provenance(preview.source.provenance),
                     h(
                       'p',
                       null,
@@ -485,7 +570,7 @@ window.__ModuleLoader__.load({
                       h(
                         Button,
                         {
-                          disabled: busy,
+                          disabled: busy, variant:'primary',
                           onClick: () =>
                             act(async () => {
                               await call('sourceImport', {
@@ -493,10 +578,9 @@ window.__ModuleLoader__.load({
                                 revision: preview.revision,
                               });
                               const updated = await load(workspace);
-                              select(
-                                updated.sources.find((item) => item.revision === preview.revision)
-                              );
-                              setPreview(null);
+                              const imported = updated?.sources.find(item => item.revision === preview.revision);
+                              if (imported) select(imported);
+                              setPreview(null); setImportText(''); setFileName('');
                               setStatus('火种源已创建');
                             }),
                         },
@@ -507,7 +591,7 @@ window.__ModuleLoader__.load({
                         {
                           onClick: () => {
                             setPreview(null);
-                            setImportText('');
+                            setImportText(''); setFileName('');
                           },
                         },
                         '取消'
@@ -533,6 +617,7 @@ window.__ModuleLoader__.load({
                   ],
                   '工作区'
                 ),
+                workspace && loadedWorkspace !== workspace && h('small', {className:'sf-muted',role:'status'},loadError ? '该工作区的配置未载入' : '正在读取工作区配置…'),
                 h('div', { className: 'sf-row' },
                   titleField(title, setTitle),
                   field(
@@ -545,26 +630,25 @@ window.__ModuleLoader__.load({
                     }),
                     roleHint
                   ),
-                )
-              ),
+                ),
               firstMessageField(firstMessage, setFirstMessage),
-              h('small', {className:'sf-muted'},'也可以先进入对话。发送前切走，本次锻造自动取消。'),
+              h('small', {className:'sf-muted'},'也可以先进入对话。发送前切走，本次锻造自动取消。')),
               section(
-                '01 / 火种源',
+                '火种源',
                 choices(
                   source.source.id,
                   (id) => select(catalog.sources.find((item) => item.source.id === id)),
                   catalog.sources.map((item) => [item.source.id, item.displayName ?? item.source.name]),
                   '火种源'
                 ),
-                h('p', null, source.source.description)
+                sourceSummary
               ),
               section(
-                '02 / 选择火种',
+                '火种',
                 h(
                   'div',
                   { className: 'sf-sparks' },
-                  source.source.sparks.map((spark) =>
+                  sparks.map((spark) =>
                     h(
                       'button',
                       {
@@ -574,38 +658,32 @@ window.__ModuleLoader__.load({
                         onClick: () => select(source, spark),
                       },
                       h('strong', null, spark.name),
-                      h('small', null, spark.description)
+                      catalog.quantity.some(row => row.source.id === source.source.id && row.sparkId === spark.id) && h('span',{className:'sf-card-mark'},'量产'),
+                      h('small', {title:spark.description}, spark.description)
                     )
                   )
                 ),
-                draft.provenance
-                  ? h(
-                      'p',
-                      { className: 'sf-muted' },
-                      draft.provenance.project,
-                      ' · ',
-                      h(
-                        'a',
-                        { href: draft.provenance.url, target: '_blank', rel: 'noreferrer' },
-                        draft.provenance.revision.slice(0, 12)
-                      ),
-                      ' · ',
-                      draft.provenance.license
-                    )
-                  : h('p', { className: 'sf-muted' }, '配置来自当前 DSH 原生 Preset')
-              ),
+                h('div', { className:'sf-source-info' },
+                  h('small',{className:'sf-meta'}, '当前 · ' + draft.name + ' · ' + source.source.name + ' · ' + source.revision.slice(0,12)),
+                  draft.provenance?.url !== source.source.provenance?.url && provenance(draft.provenance),
+                  source.readOnly && h('small',{className:'sf-muted'},'只读 · 可以另存为新火种源后编辑。')),
+              edit && h('div', {className: 'sf-edit-state', role: 'status'},
+                conflict ? '已保存的火种有变化。本地修改可另存为副本。' : '当前火种有未保存修改',
+                conflict && h(Button, {onClick: () => setEdits(previous => {
+                  const next = new Map(previous), entries = new Map(next.get(source.source.id));
+                  entries.delete(draft.id); next.set(source.source.id, entries); return next;
+                })}, '放弃本地修改并读取新版')),
               configSection(
                 '03 / 火种配置',
-                source.readOnly ? null : h(Button, { type: 'button', disabled: busy || checking || Boolean(validation),
-                  onClick: () => beginCopy('spark') }, '另存为新火种'),
                 !source.readOnly && h('div',{className:'sf-actions'},
-                  editable && h(Button,{type:'button',disabled:busy || checking || Boolean(validation),
-                    onClick:()=>setManage({kind:'edit',name:draft.name})},'编辑并保存火种'),
-                  h(Button,{type:'button',disabled:busy || (!marked && dirty),onClick:mark,
+                  h(Button, {type:'button', variant:'outline', size:'sm', disabled:busy || checking || Boolean(validation), onClick:() => beginCopy('spark')}, '另存为新火种'),
+                  editable && h(Button,{type:'button',disabled:busy || conflict || checking || Boolean(validation),
+                    onClick:()=>setManage({kind:'edit',name:draft.name,revision:edit?.revision ?? source.revision})},'编辑并保存火种'),
+                  h(Button,{type:'button',disabled:busy || conflict || (!marked && dirty),onClick:mark,
                     title:dirty && !marked ? '请先保存修改或另存为新火种' : undefined},marked ? '移出量产' : '加入量产'),
-                  editable && h(Button,{type:'button',disabled:busy || source.source.sparks.length < 2,
-                    onClick:()=>setManage({kind:'delete',name:draft.name})},'删除火种')),
-                h('h3', null, '指令 · Persona'),
+                  editable && h(Button,{type:'button',className:'sf-danger',disabled:busy || conflict || source.source.sparks.length < 2,
+                    onClick:()=>setManage({kind:'delete',name:draft.name,revision:edit?.revision ?? source.revision})},'删除火种')),
+                h('h4', null, '指令 · Persona'),
                 field(
                   'Persona',
                   h('textarea', {
@@ -613,7 +691,7 @@ window.__ModuleLoader__.load({
                     onChange: (e) => patch('persona', e.target.value),
                     rows: 6,
                     maxLength: 16000,
-                  })
+                  }), undefined, fieldError('/persona')
                 ),
                 h(
                   'details',
@@ -628,7 +706,7 @@ window.__ModuleLoader__.load({
                     )
                   )
                 ),
-                h('h3', null, '档案 · soul'),
+                h('h4', null, '档案 · soul'),
                 field(
                   'soul.md',
                   h('textarea', {
@@ -636,12 +714,12 @@ window.__ModuleLoader__.load({
                     onChange: (e) => patch('soul', e.target.value),
                     rows: 4,
                     maxLength: 16000,
-                  })
+                  }), undefined, fieldError('/soul')
                 ),
-                h('h3', null, '齿轮 · Cog'),
+                h('h4', null, '齿轮 · Cog'),
                 h(
                   'div',
-                  { className: 'sf-row' },
+                  { className: 'sf-row sf-cog' },
                   field(
                     '提供方',
                     choices(
@@ -659,7 +737,7 @@ window.__ModuleLoader__.load({
                         ...catalog.models.groups.map((g) => [g.id, g.name ?? g.id]),
                       ],
                       '提供方'
-                    )
+                    ), undefined, fieldError('/cog/provider')
                   ),
                   field(
                     '模型',
@@ -671,7 +749,7 @@ window.__ModuleLoader__.load({
                     ),
                     !selectedModel.provider && !selectedModel.reasoningEffort
                       ? '在新会话里选中此火种时，会沿用输入框右下角当前的模型和推理等级。'
-                      : null
+                      : null, fieldError('/cog/model')
                   ),
                   model?.reasoning?.efforts?.length
                     ? field(
@@ -734,21 +812,21 @@ window.__ModuleLoader__.load({
                     energy.maxTokens,
                     (value) => energyPatch('maxTokens', value),
                     {
-                      min: 1,
+                      min: 1, path: 'maxTokens',
                       defaultText: `继承适配器${modelDefaults?.maxTokens ? '（当前默认 ' + modelDefaults.maxTokens + '）' : ''}`,
                     }
                   ),
                   number('累计 Token 额度', energy.tokenLimit, (value) =>
-                    energyPatch('tokenLimit', value)
+                    energyPatch('tokenLimit', value), { path: 'tokenLimit' }
                   ),
                   number(
                     '单 Turn 耗时（毫秒）',
                     energy.maxTurnDurationMs,
                     (value) => energyPatch('maxTurnDurationMs', value),
-                    { min: 1 }
+                    { min: 1, path: 'maxTurnDurationMs' }
                   ),
                   number('提前收尾时间（毫秒）', energy.wrapUpLeadTimeMs, (value) =>
-                    energyPatch('wrapUpLeadTimeMs', value ?? 0)
+                    energyPatch('wrapUpLeadTimeMs', value ?? 0), { path: 'wrapUpLeadTimeMs' }
                   ),
                   field(
                     '绝对截止时间',
@@ -770,7 +848,7 @@ window.__ModuleLoader__.load({
                     })
                   )
                 ),
-                h('h3', null, 'Step'),
+                h('h4', null, 'Step'),
                 h(
                   'p',
                   { className: 'sf-muted' },
@@ -795,12 +873,12 @@ window.__ModuleLoader__.load({
                             ...energy.steps,
                             [key]: value ?? (min ? null : 0),
                           }),
-                        { min }
+                        { min, path: 'steps/' + key }
                       )
                     )
                   )
                 ),
-                h('h3', null, 'Web · 单次工具调用'),
+                h('h4', null, 'Web · 单次工具调用'),
                 h(
                   'div',
                   { className: 'sf-row' },
@@ -818,17 +896,17 @@ window.__ModuleLoader__.load({
                         label,
                         energy.web[key],
                         (value) => energyPatch('web', { ...energy.web, [key]: value }),
-                        { min: 1, defaultText: '继承宿主 ' + available.webDefaults[key] }
+                        { min: 1, path: 'web/' + key, defaultText: '继承宿主 ' + available.webDefaults[key] }
                       )
                     )
                   )
                 ),
-                h('h3', null, '费用'),
+                h('h4', null, '费用'),
                 number(
                   '累计费用额度',
                   energy.costLimit,
                   (value) => energyPatch('costLimit', value),
-                  { step: 'any' }
+                  { step: 'any', path: 'costLimit' }
                 ),
                 energy.costLimit != null
                   ? h(
@@ -842,7 +920,7 @@ window.__ModuleLoader__.load({
                           maxLength: 3,
                           onChange: (e) =>
                             energyPatch('costCurrency', e.target.value.toUpperCase()),
-                        })
+                        }), undefined, fieldError('/energon/costCurrency')
                       ),
                       h(
                         'p',
@@ -877,7 +955,7 @@ window.__ModuleLoader__.load({
                                 next,
                               ]);
                             },
-                            { step: 'any', defaultText: '需显式设置' }
+                            { step: 'any', defaultText: '需显式设置', path: 'pricing/' + Math.max(0, energy.pricing?.indexOf(price) ?? 0) + '/' + key }
                           )
                         );
                       })
@@ -890,43 +968,36 @@ window.__ModuleLoader__.load({
                 toggle('议事厅', draft.council?.enabled ?? false, (value) =>
                   patch('council', { enabled: value, types: draft.council?.types ?? [] })
                 ),
-                draft.council?.enabled
-                  ? h(
-                      'div',
-                      { className: 'sf-capabilities' },
-                      ...Object.entries(councilTypes).map(([key, label]) =>
-                        h(
-                          React.Fragment,
-                          { key },
-                          toggle(label, draft.council.types.includes(key), (value) =>
-                            patch('council', {
-                              ...draft.council,
-                              types: value
-                                ? [...draft.council.types, key]
-                                : draft.council.types.filter((t) => t !== key),
-                            })
-                          )
-                        )
-                      )
-                    )
-                  : null
+                draft.council?.enabled && [
+                  ['项目意图与设计', ['prd','spec','design','rfc','adr']],
+                  ['工程执行', ['sop','runbook','checklist','notice']],
+                  ['工程知识', ['pitfalls','troubleshooting','reference']],
+                  ['历史与连续性', ['handoff','postmortem','report']],
+                ].map(([group, types]) => h('fieldset', {className:'sf-council-group',key:group},
+                  h('legend',null,group), h('div',{className:'sf-capabilities'},
+                    types.map(key => h(React.Fragment,{key},toggle(councilTypes[key],draft.council.types.includes(key),
+                      enabled => patch('council',{...draft.council, types: enabled
+                        ? [...draft.council.types,key] : draft.council.types.filter(type => type !== key)})))))))
               ),
               problems.length ? h('p', { role: 'status' }, problems.join(' ')) : null,
               error && !copy ? h('p', { role: 'alert', className: 'sf-error' }, error) : null,
               h(
                 'div',
-                { className: 'sf-actions' },
+                { className: 'sf-actions sf-create-actions' },
+                h(Button, { type: 'button', variant:'outline', disabled: busy, onClick: () => beginCopy('source') }, '另存为新火种源…'),
                 h(
                   Button,
                   {
-                    type: 'button', onClick: () => act(() => create(source, draft)),
+                    type: 'button', variant:'primary', onClick: () => act(async () => {
+                      setCreating(true);
+                      try { await create(source, draft); } finally { setCreating(false); }
+                    }),
                     disabled: busy || problems.length > 0,
                   },
-                  firstMessage.trim() ? '发送并创建会话' : '进入对话'
-                ),
-                h(Button, { type: 'button', disabled: busy, onClick: () => beginCopy('source') }, '另存为新火种源…')
-              )
-            )
+                  creating ? '正在创建…' : firstMessage.trim() ? '发送并创建会话' : '进入对话'
+                )
+              ))
+            ))
       );
     }
     function RallyPanel({ sessionId, call, data, watchRoster, useWorkspaces, onDelivered }) {
@@ -981,7 +1052,7 @@ window.__ModuleLoader__.load({
             await call('rallyRevive', {input:{ sessionId, targetId:member.sessionId, scope, requestId:crypto.randomUUID() }});
           }) }, '恢复会话'),
           member.archived && data.leader && member.sessionId !== sessionId && h(Button, {
-            disabled: busy, onClick: () => { setError(''); setRemoval(member); }
+            className:'sf-danger', disabled: busy, onClick: () => { setError(''); setRemoval(member); }
           }, '从锻造台永久移除'));
       };
       const members = group?.members ?? [], active = members.filter(m => !m.archived), archived = members.filter(m => m.archived);
@@ -1010,7 +1081,7 @@ window.__ModuleLoader__.load({
           }) }, '确认永久移除')),
         data.leader && h('details', null, h('summary', null, '跨工作区授权'),
           ...workspaces.filter(w => w.workspaceId !== data.group?.workspaceId).map(w =>
-            h('label', {key:w.workspaceId}, h('input', { type:'checkbox', disabled:busy, checked:granted.includes(w.workspaceId),
+            h('label', {key:w.workspaceId,className:'sf-check'}, h('input', { type:'checkbox', disabled:busy, checked:granted.includes(w.workspaceId),
               onChange:e => { const enabled = e.target.checked; run(async () => {
                 setGranted(await call('rallyGrant', {input:{sessionId, workspaceId:w.workspaceId, enabled}}));
                 attempt.current = null;
@@ -1118,7 +1189,7 @@ window.__ModuleLoader__.load({
               h(
                 'li',
                 { key: name },
-                h('button', { type: 'button', onClick: () => read(name) }, name)
+                h('button', { className:'sf-doc-link', 'aria-current':doc?.name === name, type: 'button', onClick: () => read(name) }, name)
               )
             )
           ),
@@ -1717,9 +1788,92 @@ window.__ModuleLoader__.load({
         };
         ctx.effect(() => {
           const style = document.createElement('style');
-          style.textContent =
-            '.sf-native-conversation{display:flex;flex:1;min-width:0;min-height:0;height:100%;flex-direction:column;position:relative;isolation:isolate}.sf-native-conversation [data-conversation-scroll]{justify-content:center;overflow-y:auto}.sf-workbench{height:100%;overflow:auto;padding:32px max(24px,calc((100% - 1000px)/2));box-sizing:border-box}.sf-config-fields{border:0;min-width:0;margin:0;padding:0}.sf-workbench h1{font-size:24px;margin:0 0 24px}.sf-tabs,.sf-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:16px 0}.sf-section{border-top:1px solid color-mix(in srgb,currentColor 14%,transparent);padding:24px 0}.sf-section h2{font-size:18px;margin:0 0 20px}.sf-section h3{font-size:15px;margin:20px 0 12px}.sf-field{display:flex;flex-direction:column;gap:8px;margin:12px 0;flex:1;min-width:180px}.sf-field input:not([type=checkbox]),.sf-field textarea,.sf-field select,.sf-section>select{font:inherit;color:inherit;background:transparent;border:1px solid color-mix(in srgb,currentColor 22%,transparent);border-radius:8px;padding:10px;width:100%;box-sizing:border-box}.sf-field textarea{resize:vertical}.sf-field small,.sf-muted,.sf-check small,.sf-sparks small,.sf-capabilities small{display:block;font-size:12px;opacity:.65;line-height:1.5}.sf-row,.sf-capabilities{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px 20px}.sf-capabilities{max-height:360px;overflow:auto}.sf-check{display:flex;align-items:start;gap:8px;margin:8px 0}.sf-check input{margin-top:4px}.sf-sparks{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}.sf-sparks button{font:inherit;color:inherit;text-align:left;background:transparent;border:1px solid color-mix(in srgb,currentColor 20%,transparent);border-radius:10px;padding:16px;cursor:pointer}.sf-sparks button[aria-pressed=true]{border-color:currentColor;background:color-mix(in srgb,currentColor 5%,transparent)}.sf-error{color:#bd3b32}.sf-section pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:260px;overflow:auto}.sf-collaboration .sf-section{padding:20px 0}.sf-collaboration ul{padding-left:20px}.sf-collaboration button{cursor:pointer}.sf-quantity-chip{display:inline-flex;align-items:center;gap:4px;min-height:28px;padding:0 8px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;font-weight:500;cursor:pointer}.sf-quantity-chip:hover,.sf-quantity-chip[aria-expanded=true]{background:var(--dsw-alias-fill-secondary)}.sf-menu-source{display:block;opacity:.65}.sf-workbench details{margin:14px 0} .session-forging-view{box-sizing:border-box;width:100%;max-width:840px;min-width:0;margin:0 auto;padding:20px clamp(16px,4%,40px)}.session-forging-view section{margin:0 0 24px}.session-forging-view h3{margin:0 0 12px;font-size:14px}.session-forging-view pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.65}.session-forging-note{font-size:12px;opacity:.65}.session-forging-path{display:block;font-size:11px;overflow-wrap:anywhere;opacity:.65}';
-          style.textContent += `
+          style.textContent = `
+            .sf-native-conversation{display:flex;flex:1;min-width:0;min-height:0;height:100%;flex-direction:column;position:relative;isolation:isolate}
+            .sf-native-conversation [data-conversation-scroll]{justify-content:center;overflow-y:auto}
+            .sf-workbench{
+              container:forge / inline-size;height:100%;min-width:0;overflow:auto;box-sizing:border-box;
+              color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base,Canvas);font:inherit;line-height:1.5;
+            }
+            .sf-header,.sf-body{padding-inline:max(22px,calc((100% - 960px)/2));box-sizing:border-box}
+            .sf-header{position:sticky;z-index:2;top:0;background:var(--dsw-alias-bg-base,Canvas);border-bottom:1px solid var(--dsw-alias-border-l2)}
+            .sf-toolbar,.sf-header-actions,.sf-tabs,.sf-actions,.sf-edit-state{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+            .sf-toolbar{padding-block:14px 8px;column-gap:14px}
+            .sf-toolbar h1{margin:0;line-height:1.4;font-size:19px;font-weight:600;letter-spacing:-.02em}
+            .sf-header-actions{margin-left:auto;gap:4px}
+            .sf-update,.sf-back,.sf-meta,.sf-field small,.sf-muted,.sf-check small,.sf-sparks small,.sf-capabilities small,.session-forging-note,.session-forging-path{font-size:12px;color:var(--dsw-alias-label-secondary);line-height:1.5}
+            .sf-back,.sf-icon,.sf-tabs button,.sf-update-link{background:transparent;border:0;font-family:inherit;cursor:pointer;color:var(--dsw-alias-label-secondary)}
+            .sf-back,.sf-icon,.sf-update-link{border-radius:6px;padding:4px 7px;min-height:30px}
+            .sf-back{display:inline-flex;align-items:center;gap:4px}
+            .sf-back span{font-size:21px;line-height:.8}
+            .sf-icon{display:grid;place-items:center;width:32px}
+            .sf-icon svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.65;stroke-linecap:round;stroke-linejoin:round}
+            .sf-back:hover,.sf-icon:hover:enabled,.sf-update-link:hover{background:var(--dsw-alias-interactive-bg-hover)}
+            .sf-update{margin-right:4px;font-variant-numeric:tabular-nums}
+            .sf-tabs{gap:22px}
+            .sf-tabs button{border-bottom:2px solid transparent;padding:8px 1px;font-size:13px}
+            .sf-tabs button[aria-selected=true]{color:var(--dsw-alias-label-primary);border-color:currentColor;font-weight:600}
+            .sf-body{padding-block:0 32px;overflow-wrap:anywhere}
+            .sf-section{padding:16px 0;border-bottom:1px solid var(--dsw-alias-border-l2);min-width:0}
+            .sf-section:last-child{border-bottom:0}
+            .sf-section h2{font-size:16px;line-height:24px;margin:0 0 9px;font-weight:600}
+            .sf-section p{margin:6px 0}
+            .sf-subsection{margin-top:20px;border-top:1px solid var(--dsw-alias-border-l2);padding:16px 0 0 12px}
+            .sf-subsection>h3{font-size:14px;margin:0 0 9px;font-weight:600}
+            .sf-config-fields{min-width:0;min-inline-size:0;margin:0;border:0;padding:0}
+            .sf-config-fields h4,.sf-config-fields legend{font-size:13px;font-weight:600;margin:14px 0 5px}
+            .sf-actions,.sf-edit-state{margin:10px 0}
+            .sf-field{display:flex;flex-direction:column;min-width:0;gap:4px;margin:7px 0;font-size:13px}
+            .sf-field>span{font-weight:500}
+            .sf-field input:not([type=checkbox]),.sf-field select,.sf-field textarea,.sf-section>select{
+              box-sizing:border-box;width:100%;max-width:100%;min-width:0;min-height:32px;padding:5px 9px;
+              border:1px solid var(--dsw-alias-border-l4,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-md,7px);
+              font:inherit;font-size:13px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1,Canvas);
+            }
+            .sf-field textarea{resize:vertical;line-height:1.5}
+            .sf-field input[type=number],.sf-meta,.sf-usage{font-variant-numeric:tabular-nums}
+            .sf-field :is(input,textarea)::placeholder{color:var(--dsw-alias-label-tertiary)}
+            .sf-field [aria-invalid=true]{border-color:var(--dsw-alias-state-error-primary,CanvasText)}
+            .sf-error,.sf-field .sf-error,.sf-danger{color:var(--dsw-alias-state-error-primary,CanvasText)}
+            .sf-workbench :focus-visible,.session-forging-view :focus-visible,.sf-field :focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,Highlight);outline-offset:1px}
+            .sf-config-fields[data-readonly] :is(input,select,textarea){opacity:1;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);cursor:default}
+            .sf-row,.sf-sparks,.sf-capabilities{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px 16px}
+            .sf-sparks{gap:8px}
+            .sf-sparks button{position:relative;min-width:0;text-align:left;padding:10px 26px 10px 12px;color:inherit;font:inherit;border-radius:8px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);cursor:pointer}
+            .sf-sparks button:hover{background:var(--dsw-alias-interactive-bg-hover)}
+            .sf-sparks button[aria-pressed=true]{border-color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 5%,var(--dsw-alias-bg-layer-1))}
+            .sf-sparks button[aria-pressed=true]::after{content:'✓';position:absolute;right:10px;top:9px;color:var(--dsw-alias-state-business-primary)}
+            .sf-source-info{display:flex;gap:2px 12px;align-items:baseline;flex-wrap:wrap;margin-top:4px}
+            .sf-source-info a{color:var(--dsw-alias-state-business-primary);text-underline-offset:2px}
+            .sf-source-info p{flex-basis:100%;margin:1px 0}
+            .sf-sparks strong{font-size:13px}
+            .sf-sparks small{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+            .sf-card-mark{margin-inline-start:6px;font-size:11px;color:var(--dsw-alias-label-secondary)}
+            .sf-edit-state{font-size:12px;color:var(--dsw-alias-label-secondary)}
+            .sf-capabilities:not(:empty){max-height:290px;overflow:auto;padding:5px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px}
+            .sf-check{display:flex;align-items:baseline;gap:7px;padding:5px 0;font-size:13px}
+            .sf-check input{flex:none;accent-color:var(--dsw-alias-state-business-primary);align-self:flex-start;margin-top:4px}
+            .sf-check small,.sf-muted,.sf-capabilities small,.session-forging-path{display:block}
+            .sf-workbench details,.session-forging-view details{margin:8px 0}
+            .sf-workbench summary,.session-forging-view summary{cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:13px}
+            .sf-section pre,.session-forging-view pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:10px 12px;margin:6px 0;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1);max-height:320px;overflow:auto}
+            .sf-quantity-chip{display:inline-flex;align-items:center;gap:4px;min-height:28px;padding:0 8px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;font-weight:500;cursor:pointer}
+            .sf-quantity-chip:hover,.sf-quantity-chip[aria-expanded=true]{background:var(--dsw-alias-fill-secondary)}
+            .sf-menu-source{display:block;color:var(--dsw-alias-label-secondary)}
+            .session-forging-view{box-sizing:border-box;width:100%;max-width:860px;min-width:0;margin:0 auto;padding:18px clamp(14px,4%,36px);overflow-wrap:anywhere}
+            .session-forging-view h3{font-size:14px;margin:12px 0 6px}
+            .session-forging-view pre{font:inherit;line-height:1.65}
+            .sf-collaboration ul{list-style:none;margin:6px 0;padding:0}
+            .sf-collaboration li{padding:7px 0;border-bottom:1px solid var(--dsw-alias-border-l2)}
+            .sf-collaboration li:last-child{border-bottom:0}
+            .sf-collaboration li>button{margin-inline-start:7px}
+            .sf-doc-link{background:transparent;color:inherit;border:none;cursor:pointer;font:inherit;text-align:left}
+            .sf-doc-link[aria-current=true]{font-weight:600;text-decoration:underline}
+            .sf-create-actions{justify-content:flex-end;border-top:1px solid var(--dsw-alias-border-l2);padding-top:12px}
+            .sf-council-group{border:0;padding:0;margin:8px 0;min-width:0}
+            @container forge (min-width:1040px){.sf-sparks,.sf-cog{grid-template-columns:repeat(3,minmax(0,1fr))}}
+            @container forge (max-width:719px){.sf-sparks,.sf-row,.sf-capabilities{grid-template-columns:minmax(0,1fr)}.sf-header,.sf-body{padding-inline:16px}.sf-subsection{padding-left:0}}
+            @container forge (max-width:479px){.sf-toolbar{gap:4px 8px}.sf-update{font-size:11px}.sf-header-actions{flex-wrap:wrap}.sf-create-actions>*{width:100%}}
             .sf-branch-action {
               display: inline-flex;
               align-items: center;
@@ -1754,12 +1908,20 @@ window.__ModuleLoader__.load({
           name:'conversation.hero.options', id:'session-forging.quantity', order:30,
           inject:()=>({ call, stage, cancel:clearDraft, createAccess, hooks:{workspaces:ctx.workspaces.list,selection} }),
         }, QuantitySeat));
+        const navigation = {
+          back: () => ctx.layout.selectPanel(null),
+          get settings() {
+            const service = ctx.get('pluginNavigation');
+            return service && (() => service.openBundle(bundleName));
+          },
+          readUpdate: () => readUpdate(ctx.connection.rpc),
+        };
         ctx.slots.inject('main', () =>
           ctx.slots.register(
             {
               name: 'main',
               key: 'session-forging',
-              inject: () => ({ call, workspaceTarget, stage, openSession: (id) => ctx.uiWorkspace.openSession(id) }),
+              inject: () => ({ call, workspaceTarget, stage, navigation, openSession: (id) => ctx.uiWorkspace.openSession(id) }),
             },
             Workbench
           )

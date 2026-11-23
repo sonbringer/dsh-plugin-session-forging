@@ -15,7 +15,7 @@ import { Rally } from './rally.js';
 import { Energon } from './energon.js';
 import { councilList, councilDocument } from './council.js';
 import { attachFeatures } from './session-features.js';
-import { catalog, sourcePreview, sourceImport, sourceExport, saveSourceCopy, saveSparkCopy, workbenchCreate } from './workbench.js';
+import { catalog, validateSpark, sourcePreview, sourceImport, sourceExport, saveSourceCopy, saveSparkCopy, workbenchCreate } from './workbench.js';
 import { registerForkCommand } from './commands.js';
 
 /** Host-only orchestration; Workspace and Session membership remain native facts. */
@@ -240,6 +240,7 @@ export class SessionForging {
 
   async modelDefaults(selection) { return JSON.parse(JSON.stringify(await this.ctx.llm.resolveCallConfig(selection))); }
   catalog(workspaceId) { return catalog(this, workspaceId); }
+  validateSpark(text) { return validateSpark(text); }
   sourcePreview(text) { return sourcePreview(text); }
   sourceImport(text, revision) { return this.enqueue(() => sourceImport(this, text, revision)); }
   sourceExport(reference) { return sourceExport(this, reference); }

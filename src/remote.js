@@ -27,6 +27,7 @@ export async function registerView(ctx, forging) {
     endpoint('changeSpark', [parameter('source', reference), parameter('sparkId', sid), parameter('spark', z.json().nullable())]),
     endpoint('saveSessionSpark', [parameter('input', z.strictObject({ sessionId: sid, sourceText: z.string().max(262144), id: z.string().regex(/^copy-[a-z0-9-]+$/).max(80), name: z.string().trim().min(1).max(120) }))]),
     endpoint('catalog', [parameter('workspaceId', sid.nullable())]),
+    endpoint('validateSpark', [parameter('text', z.string().max(262144))]),
     endpoint('sourcePreview', [parameter('text', z.string().max(262144))]),
     endpoint('sourceImport', [parameter('text', z.string().max(262144)), parameter('revision', revision)], reference),
     endpoint('sourceExport', [parameter('reference', reference)], z.string()),

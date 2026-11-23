@@ -24,15 +24,19 @@ session-forging 借用《变形金刚》中火种源赋予机械生命的意象�
 
 ## 使用
 
-从 GitHub 版本附件取得锻造台的 `.tgz`，或在源码目录运行 `npm ci && npm pack` 生成安装包。用 DSH 原生 CLI 安装到目标 profile。下面以桌面版的 0.2.0 为例，先退出 App，在安装包所在目录运行命令，然后重开 DSH。
+**0.3.0 是首个公开的先行原型机。** 火种模板、会话记忆和跨会话协作已可试用，接口和交互还会随使用反馈调整。
+
+退出 DSH 桌面 App，在终端运行以下命令，然后重开 App。固定链接始终下载标记为 Latest 的版本。[下载最新安装包](https://github.com/sonbringer/dsh-plugin-session-forging/releases/latest/download/dsh-session-forging.tgz) · [各版本与 SHA-256 校验和](https://github.com/sonbringer/dsh-plugin-session-forging/releases)
 
 ```sh
-dsh plugin --profile desktop add --ignore-scripts ./zhengrenwritecode-dsh-session-forging-0.2.0.tgz
+curl -fL 'https://github.com/sonbringer/dsh-plugin-session-forging/releases/latest/download/dsh-session-forging.tgz' -o dsh-session-forging.tgz
+dsh plugin --profile desktop add --ignore-scripts ./dsh-session-forging.tgz
 ```
 
 由 DSH 插件管理器加载包内 `cordis.patch.yml`。本轮验收使用 DSH `0.2.2-rc.5`。要体验召集令和议事厅，可以使用[星核猎手的剧本](doc/use-cases/星核猎手的剧本.md)。
 
 - 在原生工作区的「…」菜单选「在此工作区锻造会话…」，或从左侧「锻造台」选择已有工作区。工作区由 DSH 创建。
+- 锻造台顶部的「刷新」会重新读取工作区、火种源和插件版本，保留表单里的临时修改。同一枚火种已在另一窗口修改时，可以另存本地副本，或放弃本地修改并读取新版。「返回会话」回到 DSH 主视图。
 - 编辑火种后，点「进入对话」把配置带到目标工作区的原生新会话输入框。发送第一条消息才会保存锻造会话，之后可以从侧栏重新打开。只打字未发送就切走或刷新，会丢弃这次临时调整。也可以在锻造台填写首条消息，点「发送并创建会话」直接开始。会话名称选填，留空交给 DSH 按首条消息命名。首条消息只属于本次会话，另存火种、复制整个火种源、从已开始的会话另存火种均只保存配置。本轮编辑在切换火种时保留。点击「另存为新火种」会在同一来源中新增模板。「另存为新火种源…」保存整套修改，命名后可选「保存副本」或「保存并锻造」。只保存副本时无需选择工作区。
 - 经常使用的火种可以在锻造台点「加入量产」。在目标工作区打开空白新会话，点输入框上方右侧的「火种」，选中模板后继续在同一个 DSH 输入框工作。已经输入的文字和已添加的附件可以直接发送，未发送时可在同一菜单取消锻造。领袖模板可选填会话名字和使命，留空也可使用。快捷菜单同时列出来源，方便辨认同名火种。
 - 选火种时，已有且可用的模型配置会自动带到输入框右下角。模型和等级均留空、提供方或模型已移除、指定等级不受支持时，保留当前选择。只指定推理等级时，沿用当前模型。首轮和后续轮都尊重你在 DSH 菜单里的手动修改。DSH rc.5 会尝试把通过原生菜单服务应用的选择记为以后新会话的默认值。火种本身只有显式保存时才会更新。
@@ -138,16 +142,17 @@ await forging.restore(created.sessionId);
 
 运行 `npm ci --ignore-scripts` 和 `npm test` 可执行产品单测。开发者首次克隆后可用 `git config --local core.hooksPath .githooks` 启用推送前检查。提交产品源码、测试和使用文档时，Git 文件清单与安装包清单分别受检。本机 profile、会话、密钥、验收产物及个人 skill 留在仓库外。GitHub Actions 对 push 和 PR 复查提交历史、单测和实际打包内容。
 
-
 ## 我是谁
 
-一个 agent 从业三年的小萌新，对 js 语言不太熟悉，有任何建议欢迎在 doc/prds 留言~
+三年 Agent 开发，JS 小白。锻造台是我的练手用 DSH 插件，也是一份求职展示作品。在这个时代，我希望突破舒适区，探索由自己从0到1完成：发现需求，产品设计，原型实现，验收，复盘产生新需求的闭环。
 
-目标是做一个优雅的插件。
+## 贡献
 
-目前的进度是0.2.
+欢迎提供具体的开发建议和使用反馈： [doc/prds](doc/prds/)。
 
+如果身为自信大牛的你已经写好了代码，也可以提PR。
 
+当然也能直接fork拿去用~
 
 ## 许可与来源
 

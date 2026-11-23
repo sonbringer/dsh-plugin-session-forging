@@ -1,3 +1,4 @@
+import manifest from '../package.json' with { type: 'json' };
 import { readFile } from 'node:fs/promises';
 import { previewSource, isNativeExample, nativeExampleName, nativeExampleId, readOnlyExampleError } from './source.js';
 import { ForgingError } from './records.js';
@@ -117,6 +118,7 @@ export async function catalog(forging, workspaceId) {
   }
   return JSON.parse(
     JSON.stringify({
+      pluginVersion: manifest.version,
       workspaces: ctx.workspaceRegistry
         .list()
         .map((w) => ({ id: w.id, name: w.title ?? w.path, path: w.path })),
@@ -128,11 +130,24 @@ export async function catalog(forging, workspaceId) {
     })
   );
 }
+export function validateSpark(text) {
+  try {
+    previewSource(text);
+    return [];
+  } catch (error) {
+    if (error.code !== 'INVALID_SOURCE') throw error;
+    return (error.issues ?? [{ instancePath: '', message: error.message }]).map(issue => ({
+      path: issue.instancePath.replace(/^\/sparks\/0(?=\/|$)/, '') +
+        (issue.keyword === 'required' ? '/' + issue.params.missingProperty : ''),
+      message: issue.message,
+    }));
+  }
+}
 export function sourcePreview(text) {
   try {
     return previewSource(text);
   } catch (error) {
-    if (error.issues)
+    if (error.issues && !error.message.startsWith('/sparks/'))
       error.message +=
         ' ' +
         error.issues
