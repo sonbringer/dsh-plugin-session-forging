@@ -29,7 +29,7 @@
     "LICENSE",
     "README.md",
     "doc/handbook.md",
-    "doc/spark-and-cog.md",
+    "doc/design-philosophy.md",
     "doc/use-cases",
     "sources",
     "locale"
