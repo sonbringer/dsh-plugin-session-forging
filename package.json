@@ -29,6 +29,7 @@
     "LICENSE",
     "README.md",
     "doc/handbook.md",
+    "doc/spark-and-cog.md",
     "doc/use-cases",
     "sources",
     "locale"
