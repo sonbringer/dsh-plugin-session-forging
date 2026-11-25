@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://github.com/sonbringer"><img src="https://avatars.githubusercontent.com/u/320821521?v=4" width="120" height="120" alt="sonbringer 的 GitHub 头像"></a>
+  <a href="https://github.com/sonbringer"><img src="https://github.com/user-attachments/assets/7d0aca88-fd9d-4250-b118-1565560450a5" width="120" height="120" alt="会话锻造图标"></a>
 </p>
 
 <h1 align="center">Session Forging</h1>
