@@ -28,6 +28,7 @@
     "schemas",
     "LICENSE",
     "README.md",
+    "doc/handbook.md",
     "doc/use-cases",
     "sources",
     "locale"
